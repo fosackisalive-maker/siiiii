@@ -1,75 +1,72 @@
-
+import { supabase } from './supabaseClient';
 import { User } from '../types';
 
-// Simulated latency for "Cloud" feel
-const DELAY_MS = 1200;
-
-const USERS_KEY = 'aether_cloud_users';
-const SESSION_KEY = 'aether_session_user';
-
-// Helper to delay
-const delay = (ms: number) => new Promise(res => setTimeout(res, ms));
-
 export const authService = {
-  
-  // Register a new user
+
   signup: async (email: string, password: string, name: string): Promise<User> => {
-    await delay(DELAY_MS);
-    
-    const usersStr = localStorage.getItem(USERS_KEY);
-    const users: any[] = usersStr ? JSON.parse(usersStr) : [];
-
-    if (users.find(u => u.email === email)) {
-      throw new Error("User already exists in cloud registry.");
-    }
-
-    const newUser: User = {
-      id: `usr_${Math.random().toString(36).substr(2, 9)}`,
+    const { data, error } = await supabase.auth.signUp({
       email,
-      name,
-      createdAt: Date.now(),
+      password,
+      options: {
+        data: {
+          name
+        }
+      }
+    });
+
+    if (error) throw error;
+    if (!data.user) throw new Error('Signup failed');
+
+    return {
+      id: data.user.id,
+      email: data.user.email!,
+      name: data.user.user_metadata.name || name,
+      createdAt: new Date(data.user.created_at).getTime(),
       avatarUrl: `https://api.dicebear.com/9.x/avataaars/svg?seed=${name}`
     };
-
-    // Save user record (with fake password storage)
-    users.push({ ...newUser, password }); 
-    localStorage.setItem(USERS_KEY, JSON.stringify(users));
-    
-    // Set session
-    localStorage.setItem(SESSION_KEY, JSON.stringify(newUser));
-    
-    return newUser;
   },
 
-  // Login existing user
   login: async (email: string, password: string): Promise<User> => {
-    await delay(DELAY_MS);
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email,
+      password
+    });
 
-    const usersStr = localStorage.getItem(USERS_KEY);
-    const users: any[] = usersStr ? JSON.parse(usersStr) : [];
-    
-    const user = users.find(u => u.email === email && u.password === password);
+    if (error) throw error;
+    if (!data.user) throw new Error('Login failed');
 
-    if (!user) {
-      throw new Error("Invalid credentials.");
-    }
-
-    // Strip password before returning
-    const { password: _, ...safeUser } = user;
-    
-    localStorage.setItem(SESSION_KEY, JSON.stringify(safeUser));
-    return safeUser;
+    return {
+      id: data.user.id,
+      email: data.user.email!,
+      name: data.user.user_metadata.name || email.split('@')[0],
+      createdAt: new Date(data.user.created_at).getTime(),
+      avatarUrl: `https://api.dicebear.com/9.x/avataaars/svg?seed=${data.user.user_metadata.name || email}`
+    };
   },
 
-  // Logout
   logout: async () => {
-    await delay(500);
-    localStorage.removeItem(SESSION_KEY);
+    const { error } = await supabase.auth.signOut();
+    if (error) throw error;
   },
 
-  // Check if already logged in
   getCurrentUser: (): User | null => {
-    const sessionStr = localStorage.getItem(SESSION_KEY);
-    return sessionStr ? JSON.parse(sessionStr) : null;
+    const sessionStr = localStorage.getItem('sb-0ec90b57d6e95fcbda19832f-auth-token');
+    if (!sessionStr) return null;
+
+    try {
+      const session = JSON.parse(sessionStr);
+      const user = session.user;
+      if (!user) return null;
+
+      return {
+        id: user.id,
+        email: user.email,
+        name: user.user_metadata?.name || user.email.split('@')[0],
+        createdAt: new Date(user.created_at).getTime(),
+        avatarUrl: `https://api.dicebear.com/9.x/avataaars/svg?seed=${user.user_metadata?.name || user.email}`
+      };
+    } catch {
+      return null;
+    }
   }
 };
